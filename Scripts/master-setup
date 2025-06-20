@@ -1,0 +1,64 @@
+-- =====================================================
+-- DevifyX Banking System - Master Setup Script
+-- =====================================================
+-- This script runs all setup scripts in the correct order
+-- Run this single file to set up the entire banking system
+-- =====================================================
+
+-- Note: You may need to run each section separately depending on your MySQL client
+
+-- =====================================================
+-- 1. SCHEMA CREATION
+-- =====================================================
+
+-- Create the banking database
+DROP DATABASE IF EXISTS banking_system;
+CREATE DATABASE banking_system;
+USE banking_system;
+
+-- [Include all content from 01-schema-creation.sql here]
+-- Due to length, you would copy the content from each file
+
+-- =====================================================
+-- 2. INITIAL DATA
+-- =====================================================
+
+-- [Include all content from 02-initial-data.sql here]
+
+-- =====================================================
+-- 3. STORED PROCEDURES
+-- =====================================================
+
+-- [Include all content from 03-stored-procedures.sql here]
+
+-- =====================================================
+-- 4. TRIGGERS
+-- =====================================================
+
+-- [Include all content from 04-triggers.sql here]
+
+-- =====================================================
+-- 5. VIEWS
+-- =====================================================
+
+-- [Include all content from 05-views.sql here]
+
+-- =====================================================
+-- 6. SAMPLE TRANSACTIONS
+-- =====================================================
+
+-- [Include all content from 06-sample-transactions.sql here]
+
+-- =====================================================
+-- 7. TEST PROCEDURES
+-- =====================================================
+
+-- [Include all content from 07-test-procedures.sql here]
+
+-- =====================================================
+-- SETUP COMPLETE
+-- =====================================================
+
+SELECT 'Banking System Setup Complete!' AS status;
+SELECT 'Database: banking_system' AS database_name;
+SELECT 'Ready for testing and use' AS message;
