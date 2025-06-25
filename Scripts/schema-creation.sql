@@ -1,14 +1,8 @@
--- =====================================================
--- DevifyX Banking System - Database Schema Creation
--- =====================================================
--- This script creates the complete database schema for the banking system
--- Author: DevifyX MySQL Core Assignment
--- Version: 1.0
--- =====================================================
+
 
 -- Create the banking database
 DROP DATABASE IF EXISTS banking_system;
-CREATE DATABASE banking_system;
+CREATE DATABASE banking_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE banking_system;
 
 -- =====================================================
@@ -32,10 +26,15 @@ CREATE TABLE users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     is_active BOOLEAN DEFAULT TRUE,
     
-    -- Constraints
-    CONSTRAINT chk_email_format CHECK (email REGEXP '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
-    CONSTRAINT chk_age CHECK (DATEDIFF(CURDATE(), date_of_birth) >= 6570) -- Must be 18+ years old
-);
+    -- Constraints optimized for MySQL 8.0.42
+    CONSTRAINT chk_users_email_format CHECK (email REGEXP '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'),
+    CONSTRAINT chk_users_age CHECK (TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) >= 18),
+    
+    -- Indexes for performance
+    INDEX idx_users_email (email),
+    INDEX idx_users_active (is_active),
+    INDEX idx_users_name (last_name, first_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- User authentication table - stores login credentials
 CREATE TABLE user_auth (
@@ -51,8 +50,12 @@ CREATE TABLE user_auth (
     password_changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    
+    -- Indexes
+    INDEX idx_user_auth_username (username),
+    INDEX idx_user_auth_user_id (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Account types lookup table
 CREATE TABLE account_types (
@@ -64,8 +67,10 @@ CREATE TABLE account_types (
     overdraft_limit DECIMAL(15,2) DEFAULT 0.00,
     monthly_fee DECIMAL(10,2) DEFAULT 0.00,
     transaction_limit_daily INT DEFAULT 0, -- 0 means unlimited
-    is_active BOOLEAN DEFAULT TRUE
-);
+    is_active BOOLEAN DEFAULT TRUE,
+    
+    INDEX idx_account_types_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Currencies table for multi-currency support
 CREATE TABLE currencies (
@@ -75,8 +80,11 @@ CREATE TABLE currencies (
     symbol VARCHAR(5),
     exchange_rate DECIMAL(10,6) DEFAULT 1.000000, -- Rate to base currency (USD)
     is_active BOOLEAN DEFAULT TRUE,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_currencies_code (currency_code),
+    INDEX idx_currencies_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Bank accounts table
 CREATE TABLE accounts (
@@ -96,14 +104,21 @@ CREATE TABLE accounts (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
-    FOREIGN KEY (user_id) REFERENCES users(user_id),
-    FOREIGN KEY (account_type_id) REFERENCES account_types(type_id),
-    FOREIGN KEY (currency_id) REFERENCES currencies(currency_id),
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE RESTRICT,
+    FOREIGN KEY (account_type_id) REFERENCES account_types(type_id) ON DELETE RESTRICT,
+    FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE RESTRICT,
     
     -- Constraints
-    CONSTRAINT chk_balance_positive CHECK (balance >= 0 OR account_type_id IN (SELECT type_id FROM account_types WHERE overdraft_limit > 0)),
-    CONSTRAINT chk_available_balance CHECK (available_balance <= balance)
-);
+    CONSTRAINT chk_accounts_balance CHECK (balance >= -999999.99),
+    CONSTRAINT chk_accounts_available_balance CHECK (available_balance <= balance),
+    
+    -- Indexes for performance
+    INDEX idx_accounts_user (user_id),
+    INDEX idx_accounts_status (status),
+    INDEX idx_accounts_type (account_type_id),
+    INDEX idx_accounts_number (account_number),
+    INDEX idx_accounts_currency (currency_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Joint account owners (bonus feature)
 CREATE TABLE account_owners (
@@ -115,10 +130,12 @@ CREATE TABLE account_owners (
     added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     
-    UNIQUE KEY unique_account_user (account_id, user_id)
-);
+    UNIQUE KEY unique_account_user (account_id, user_id),
+    INDEX idx_account_owners_account (account_id),
+    INDEX idx_account_owners_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Transaction types lookup
 CREATE TABLE transaction_types (
@@ -126,8 +143,10 @@ CREATE TABLE transaction_types (
     type_name VARCHAR(50) NOT NULL UNIQUE,
     description TEXT,
     affects_balance BOOLEAN DEFAULT TRUE,
-    requires_approval BOOLEAN DEFAULT FALSE
-);
+    requires_approval BOOLEAN DEFAULT FALSE,
+    
+    INDEX idx_transaction_types_name (type_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Transactions table
 CREATE TABLE transactions (
@@ -148,20 +167,22 @@ CREATE TABLE transactions (
     transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     processed_date TIMESTAMP NULL,
     
-    FOREIGN KEY (account_id) REFERENCES accounts(account_id),
-    FOREIGN KEY (transaction_type_id) REFERENCES transaction_types(type_id),
-    FOREIGN KEY (currency_id) REFERENCES currencies(currency_id),
-    FOREIGN KEY (related_account_id) REFERENCES accounts(account_id),
-    FOREIGN KEY (processed_by) REFERENCES users(user_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE RESTRICT,
+    FOREIGN KEY (transaction_type_id) REFERENCES transaction_types(type_id) ON DELETE RESTRICT,
+    FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE RESTRICT,
+    FOREIGN KEY (related_account_id) REFERENCES accounts(account_id) ON DELETE SET NULL,
+    FOREIGN KEY (processed_by) REFERENCES users(user_id) ON DELETE SET NULL,
     
     -- Constraints
-    CONSTRAINT chk_amount_positive CHECK (amount > 0),
+    CONSTRAINT chk_transactions_amount_positive CHECK (amount > 0),
     
-    -- Indexes for performance
-    INDEX idx_account_date (account_id, transaction_date),
-    INDEX idx_transaction_number (transaction_number),
-    INDEX idx_status_date (status, transaction_date)
-);
+    -- Indexes for performance (optimized for MySQL 8.0.42)
+    INDEX idx_transactions_account_date (account_id, transaction_date DESC),
+    INDEX idx_transactions_number (transaction_number),
+    INDEX idx_transactions_status_date (status, transaction_date DESC),
+    INDEX idx_transactions_type (transaction_type_id),
+    INDEX idx_transactions_date (transaction_date DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
 -- AUDIT AND SECURITY TABLES
@@ -181,15 +202,16 @@ CREATE TABLE security_logs (
     severity ENUM('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') DEFAULT 'LOW',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL,
     
-    -- Indexes
-    INDEX idx_user_action (user_id, action_type),
-    INDEX idx_severity_date (severity, created_at),
-    INDEX idx_action_date (action_type, created_at)
-);
+    -- Indexes optimized for MySQL 8.0.42
+    INDEX idx_security_logs_user_action (user_id, action_type),
+    INDEX idx_security_logs_severity_date (severity, created_at DESC),
+    INDEX idx_security_logs_action_date (action_type, created_at DESC),
+    INDEX idx_security_logs_date (created_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Audit trail table
+-- Audit trail table - Using JSON data type (MySQL 8.0 feature)
 CREATE TABLE audit_trail (
     audit_id INT PRIMARY KEY AUTO_INCREMENT,
     table_name VARCHAR(50) NOT NULL,
@@ -201,13 +223,14 @@ CREATE TABLE audit_trail (
     change_reason TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    FOREIGN KEY (changed_by) REFERENCES users(user_id),
+    FOREIGN KEY (changed_by) REFERENCES users(user_id) ON DELETE SET NULL,
     
     -- Indexes
-    INDEX idx_table_record (table_name, record_id),
-    INDEX idx_changed_by_date (changed_by, created_at),
-    INDEX idx_action_date (action_type, created_at)
-);
+    INDEX idx_audit_trail_table_record (table_name, record_id),
+    INDEX idx_audit_trail_changed_by_date (changed_by, created_at DESC),
+    INDEX idx_audit_trail_action_date (action_type, created_at DESC),
+    INDEX idx_audit_trail_date (created_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Account holds table (for pending transactions, fraud prevention)
 CREATE TABLE account_holds (
@@ -221,13 +244,16 @@ CREATE TABLE account_holds (
     release_date TIMESTAMP NULL,
     status ENUM('ACTIVE', 'RELEASED', 'EXPIRED') DEFAULT 'ACTIVE',
     
-    FOREIGN KEY (account_id) REFERENCES accounts(account_id),
-    FOREIGN KEY (placed_by) REFERENCES users(user_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE,
+    FOREIGN KEY (placed_by) REFERENCES users(user_id) ON DELETE SET NULL,
     
-    CONSTRAINT chk_hold_amount_positive CHECK (amount > 0)
-);
+    CONSTRAINT chk_account_holds_amount_positive CHECK (amount > 0),
+    
+    INDEX idx_account_holds_account (account_id),
+    INDEX idx_account_holds_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Fraud detection rules
+-- Fraud detection rules - Using JSON for parameters (MySQL 8.0 feature)
 CREATE TABLE fraud_rules (
     rule_id INT PRIMARY KEY AUTO_INCREMENT,
     rule_name VARCHAR(100) NOT NULL,
@@ -236,8 +262,11 @@ CREATE TABLE fraud_rules (
     is_active BOOLEAN DEFAULT TRUE,
     severity ENUM('LOW', 'MEDIUM', 'HIGH') DEFAULT 'MEDIUM',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_fraud_rules_active (is_active),
+    INDEX idx_fraud_rules_type (rule_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Fraud alerts
 CREATE TABLE fraud_alerts (
@@ -253,11 +282,15 @@ CREATE TABLE fraud_alerts (
     resolved_at TIMESTAMP NULL,
     resolved_by INT NULL,
     
-    FOREIGN KEY (account_id) REFERENCES accounts(account_id),
-    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id),
-    FOREIGN KEY (rule_id) REFERENCES fraud_rules(rule_id),
-    FOREIGN KEY (resolved_by) REFERENCES users(user_id)
-);
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE SET NULL,
+    FOREIGN KEY (rule_id) REFERENCES fraud_rules(rule_id) ON DELETE CASCADE,
+    FOREIGN KEY (resolved_by) REFERENCES users(user_id) ON DELETE SET NULL,
+    
+    INDEX idx_fraud_alerts_account (account_id),
+    INDEX idx_fraud_alerts_status (status),
+    INDEX idx_fraud_alerts_risk_score (risk_score DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
 -- REPORTING AND STATEMENTS TABLES
@@ -278,10 +311,12 @@ CREATE TABLE account_statements (
     transaction_count INT DEFAULT 0,
     generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    FOREIGN KEY (account_id) REFERENCES accounts(account_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE,
     
-    UNIQUE KEY unique_account_period (account_id, statement_period_start, statement_period_end)
-);
+    UNIQUE KEY unique_account_period (account_id, statement_period_start, statement_period_end),
+    INDEX idx_account_statements_account (account_id),
+    INDEX idx_account_statements_period (statement_period_start, statement_period_end)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- System configuration table
 CREATE TABLE system_config (
@@ -292,22 +327,10 @@ CREATE TABLE system_config (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     updated_by INT NULL,
     
-    FOREIGN KEY (updated_by) REFERENCES users(user_id)
-);
-
--- =====================================================
--- INDEXES FOR PERFORMANCE OPTIMIZATION
--- =====================================================
-
--- Additional indexes for better query performance
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_active ON users(is_active);
-CREATE INDEX idx_accounts_user ON accounts(user_id);
-CREATE INDEX idx_accounts_status ON accounts(status);
-CREATE INDEX idx_accounts_type ON accounts(account_type_id);
-CREATE INDEX idx_transactions_account_date ON transactions(account_id, transaction_date DESC);
-CREATE INDEX idx_security_logs_user_date ON security_logs(user_id, created_at DESC);
-CREATE INDEX idx_audit_trail_table_date ON audit_trail(table_name, created_at DESC);
+    FOREIGN KEY (updated_by) REFERENCES users(user_id) ON DELETE SET NULL,
+    
+    INDEX idx_system_config_key (config_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
 -- INITIAL SYSTEM CONFIGURATION
@@ -322,6 +345,17 @@ INSERT INTO system_config (config_key, config_value, description) VALUES
 ('FRAUD_ALERT_THRESHOLD', '75', 'Risk score threshold for fraud alerts'),
 ('STATEMENT_GENERATION_DAY', '1', 'Day of month to generate statements'),
 ('BASE_CURRENCY', 'USD', 'Base currency for the system'),
-('MINIMUM_AGE_YEARS', '18', 'Minimum age to open an account');
+('MINIMUM_AGE_YEARS', '18', 'Minimum age to open an account'),
+('SYSTEM_VERSION', '1.0.0', 'Current system version'),
+('MYSQL_VERSION', '8.0.42', 'Target MySQL version');
+
+-- Enable MySQL 8.0 specific features
+SET sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO';
 
 COMMIT;
+
+-- Display setup completion message
+SELECT 'Banking System Schema Created Successfully!' AS status,
+       'MySQL Version: 8.0.42.0 Compatible' AS version,
+       'Database: banking_system' AS database_name,
+       'Character Set: utf8mb4' AS charset;
